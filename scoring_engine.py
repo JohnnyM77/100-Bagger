@@ -197,7 +197,7 @@ class ScoringEngine:
     
     def _calc_ebitda_growth(self, d: CompanyData) -> float:
         """Year-over-year EBITDA growth."""
-        if d.ebitda_prior <= 0 or d.ebitda_prior == 0:
+        if d.ebitda_prior <= 0:
             if d.ebitda > 0:
                 return 1.0  # Turned profitable — strong signal
             return 0.0
