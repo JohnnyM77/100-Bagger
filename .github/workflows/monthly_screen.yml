@@ -1,0 +1,63 @@
+name: Monthly 100-Bagger screen
+
+on:
+  schedule:
+    - cron: '0 1 1 * *'       # 1am UTC on the 1st of every month
+  workflow_dispatch:           # Allow manual trigger from GitHub Actions UI
+    inputs:
+      exchange:
+        description: 'Exchange to screen'
+        required: true
+        default: 'ALL'
+        type: choice
+        options:
+          - ALL
+          - ASX
+          - SGX
+
+jobs:
+  screen:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    permissions:
+      contents: write           # Required to commit reports back to repo
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Cache pip dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run tests
+        run: pytest tests/ -v
+
+      - name: Run screening pipeline
+        env:
+          FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          EXCHANGE="${{ github.event.inputs.exchange || 'ALL' }}"
+          python scripts/run_full_screen.py --exchange "$EXCHANGE"
+
+      - name: Commit reports to repo
+        run: |
+          git config user.name "100-Bagger Bot"
+          git config user.email "actions@github.com"
+          git add reports/
+          git diff --staged --quiet || git commit -m "Monthly screen results $(date +'%Y-%m')"
+          git push

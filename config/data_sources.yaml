@@ -1,0 +1,20 @@
+fmp:
+  api_key: ${FMP_API_KEY}
+  base_url: https://financialmodelingprep.com/api/v3
+  rate_limit_per_minute: 300
+
+exchanges:
+  ASX:
+    suffix: ".AX"
+    currency: AUD
+    market_cap_min: 10000000
+    market_cap_max: 2000000000
+  SGX:
+    suffix: ".SI"
+    currency: SGD
+    market_cap_min: 10000000
+    market_cap_max: 2000000000
+
+output:
+  reports_dir: reports/
+  top_n_candidates: 30
