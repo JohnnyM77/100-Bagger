@@ -1,0 +1,89 @@
+# 100-Bagger Multibagger Screening Configuration v1.0
+# Based on Yartseva (2025), Alta Fox (2020), SQGLP Framework
+# Targeting: ASX (Australia) and SGX (Singapore)
+
+metadata:
+  version: "1.0"
+  author: "100-Bagger Agent"
+  research_basis: "Yartseva, The Alchemy of Multibagger Stocks, CAFÉ WP No.33, Feb 2025"
+  exchanges: ["ASX", "SGX"]
+  rebalance_frequency: "monthly"
+
+universe:
+  ASX:
+    suffix: ".AX"
+    currency: "AUD"
+    min_daily_value_traded_local: 50000
+  SGX:
+    suffix: ".SI"
+    currency: "SGD"
+    min_daily_value_traded_local: 50000
+  excluded_gics_sectors:
+    - 10  # Energy
+    - 15  # Materials
+    - 40  # Financials
+    - 55  # Utilities
+  min_listing_age_days: 365
+  primary_listing_only: true
+
+hard_filters:
+  max_market_cap_usd: 2000000000
+  preferred_market_cap_usd: 250000000
+  anti_multibagger:
+    # REJECT if ALL THREE conditions are true
+    max_book_to_market: 0.40
+    max_roa: 0.0
+    max_asset_growth: 0.0
+
+scoring:
+  fcf_yield:
+    weight: 0.30
+    thresholds: [0.10, 0.06, 0.03, 0.01, 0.00]
+    scores:     [100,  80,   60,   40,   20]
+    default_score: 0
+
+  book_to_market:
+    weight: 0.20
+    thresholds: [1.00, 0.60, 0.40, 0.20]
+    scores:     [100,  80,   60,   40]
+    default_score: 20
+
+  size:
+    weight: 0.15
+    market_cap_usd_thresholds: [50000000, 250000000, 500000000, 1000000000, 2000000000]
+    scores:                     [100,      85,        65,        45,         25]
+
+  profitability:
+    weight: 0.15
+    roa:
+      sub_weight: 0.50
+      thresholds: [0.15, 0.08, 0.03, 0.00]
+      scores:     [100,  75,   50,   25]
+      default_score: 0
+    ebitda_margin:
+      sub_weight: 0.50
+      thresholds: [0.25, 0.15, 0.08, 0.00]
+      scores:     [100,  75,   50,   25]
+      default_score: 0
+
+  investment_discipline:
+    weight: 0.10
+    # Scored based on asset_growth vs ebitda_growth relationship
+
+  price_position:
+    weight: 0.10
+    # (price - 52w_low) / (52w_high - 52w_low)
+    thresholds: [0.15, 0.30, 0.50, 0.75]
+    scores:     [100,  80,   50,   25]
+    default_score: 0
+
+ranking:
+  min_composite_score: 50
+  max_candidates_per_exchange: 30
+  tiebreaker: "fcf_yield"
+
+contextual:
+  rate_environment:
+    rba_url: "https://api.rba.gov.au/statistics/tables/f1-1"
+    mas_url: "https://eservices.mas.gov.sg/api/action/datastore_search"
+  drawdown_threshold_6m: -0.30
