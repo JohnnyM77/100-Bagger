@@ -94,6 +94,8 @@ class ScoringEngine:
         """0-10. Lower asset growth relative to EBITDA growth = better discipline."""
         asset_growth = data.get("asset_growth", 0)
         ebitda_growth = data.get("ebitda_growth", 0)
+        if asset_growth == 0 and ebitda_growth == 0:
+            return 0.0
         if asset_growth <= 0:
             return 10.0
         if ebitda_growth > 0:
@@ -113,7 +115,7 @@ class ScoringEngine:
         current = data.get("current_price", 0)
         high = data.get("price_52w_high", 0)
         if not high or not current:
-            return 5.0
+            return 0.0
         ratio = current / high
         if ratio >= 0.95:
             return 0.0
