@@ -63,7 +63,7 @@ class ReportGenerator:
         )
         try:
             message = self.client.messages.create(
-                model="claude-opus-4-5",
+                model="claude-opus-4-6",
                 max_tokens=1000,
                 messages=[{"role": "user", "content": prompt}]
             )
