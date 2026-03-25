@@ -24,6 +24,7 @@ from src.screener.universe_builder import UniverseBuilder
 from src.screener.filter_engine import FilterEngine
 from src.screener.scoring_engine import ScoringEngine
 from src.reports.report_generator import ReportGenerator
+from src.reports.notifier import EmailNotifier
 
 logging.basicConfig(
     level=logging.INFO,
@@ -106,6 +107,21 @@ def run_pipeline(exchange: str, config: dict):
 
     reporter.generate_summary_table(top_n)
     print(f"\nAll reports saved to reports/\n")
+
+    # Stage 5: Send email notification
+    smtp_host = os.environ.get("SMTP_HOST", "")
+    smtp_port = int(os.environ.get("SMTP_PORT", "587"))
+    smtp_user = os.environ.get("SMTP_USER", "")
+    smtp_password = os.environ.get("SMTP_PASSWORD", "")
+    email_from = os.environ.get("EMAIL_FROM", smtp_user)
+    email_to = os.environ.get("EMAIL_TO", "")
+
+    if all([smtp_host, smtp_user, smtp_password, email_to]):
+        notifier = EmailNotifier(smtp_host, smtp_port, smtp_user, smtp_password, email_from, email_to)
+        notifier.send_summary(top_n, reporter.month_key)
+        print(f"Email sent to {email_to}\n")
+    else:
+        logger.info("Email not configured — skipping (set SMTP_HOST, SMTP_USER, SMTP_PASSWORD, EMAIL_TO in .env)")
 
 
 if __name__ == "__main__":

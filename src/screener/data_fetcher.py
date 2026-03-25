@@ -145,7 +145,10 @@ class DataFetcher:
                 if ratios.get("priceToBookRatioTTM", 0) > 0 else 0
             ),
             "roa": ratios.get("returnOnAssetsTTM", 0),
-            "ebitda_margin": ratios.get("ebitdaPerSharaTTM", 0),
+            "ebitda_margin": (
+                income[0].get("ebitda", 0) / income[0].get("revenue", 1)
+                if income and income[0].get("revenue", 0) > 0 else 0
+            ),
             "debt_to_equity": ratios.get("debtEquityRatioTTM", 0),
             "current_ratio": ratios.get("currentRatioTTM", 0),
             "revenue_ttm": income[0].get("revenue", 0) if income else 0,
