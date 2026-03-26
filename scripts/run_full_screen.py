@@ -67,8 +67,12 @@ def run_pipeline(exchange: str, config: dict):
     # Stage 1: Build universe
     universe = builder.build_universe(exchange)
     if universe.empty:
-        logger.warning(f"No stocks in universe for {exchange}. Check FMP API key and plan.")
-        return
+        logger.error(
+            f"No stocks in universe for {exchange}. "
+            f"The FMP API returned no tickers — check your API key is valid and that your "
+            f"plan covers the stock-screener or available-traded/list endpoints."
+        )
+        sys.exit(1)
     print(f"Universe size: {len(universe)} stocks\n")
 
     # Stage 2: Fetch full data + apply filters
@@ -86,8 +90,11 @@ def run_pipeline(exchange: str, config: dict):
     print(f"\nPassed all filters: {len(candidates)} stocks\n")
 
     if not candidates:
-        logger.warning("No candidates passed filters. Check data quality or loosen screening rules.")
-        return
+        logger.error(
+            "No candidates passed all filters. This usually means the FMP API returned "
+            "empty financial data — check your plan covers income-statement and ratios endpoints."
+        )
+        sys.exit(1)
 
     # Stage 3: Score and rank
     for c in candidates:
