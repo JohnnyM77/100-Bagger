@@ -1,0 +1,39 @@
+name: 100-Bagger Scanner
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 22 * * 5"   # Saturday 06:00 Singapore time (Friday 22:00 UTC)
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Cache pip dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-scanner-pip-${{ hashFiles('scanner/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-scanner-pip-
+
+      - name: Install deps
+        run: pip install -r scanner/requirements.txt
+
+      - name: Run scanner
+        run: python -m scanner.main
+
+      - name: Upload results
+        uses: actions/upload-artifact@v4
+        with:
+          name: scan-results-${{ github.run_id }}
+          path: scanner/data/outputs/
+          retention-days: 30

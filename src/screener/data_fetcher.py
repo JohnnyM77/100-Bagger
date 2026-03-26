@@ -50,12 +50,28 @@ class DataFetcher:
             return {} if any(k in endpoint for k in ["profile", "ratios", "metrics"]) else []
 
     def get_exchange_tickers(self, exchange: str) -> list:
+        # Try the stock-screener endpoint first (requires paid FMP plan)
         data = self._get("stock-screener", exchange, {
             "exchange": exchange,
             "limit": 3000
         })
-        if isinstance(data, list):
+        if isinstance(data, list) and data:
             return [item.get("symbol", "") for item in data if item.get("symbol")]
+
+        # Fallback: use available-traded/list (free plan) and filter by exchange suffix
+        logger.warning(
+            f"stock-screener returned no data for {exchange} — "
+            f"falling back to available-traded/list (this may indicate a free-plan FMP account)"
+        )
+        suffix_map = {"ASX": ".AX", "SGX": ".SI"}
+        suffix = suffix_map.get(exchange, "")
+        all_traded = self._get("available-traded/list", exchange)
+        if isinstance(all_traded, list) and suffix:
+            return [
+                item.get("symbol", "")
+                for item in all_traded
+                if item.get("symbol", "").endswith(suffix)
+            ]
         return []
 
     def get_company_profile(self, ticker: str) -> dict:
