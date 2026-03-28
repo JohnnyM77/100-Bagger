@@ -11,8 +11,12 @@ Usage:
 
 import argparse
 import logging
+import os
+import smtplib
 import time
 from datetime import date
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
 
 from .bulk_fetch import fetch_price_stats
 from .enricher import enrich
@@ -56,6 +60,49 @@ def parse_args() -> argparse.Namespace:
         help="Bypass the universe cache and re-fetch from source",
     )
     return parser.parse_args()
+
+
+def _send_email(md_body: str, metadata: dict) -> None:
+    """Send the markdown report as an HTML email using SMTP env vars."""
+    smtp_host = os.environ.get("SMTP_HOST", "")
+    smtp_port = int(os.environ.get("SMTP_PORT", "587"))
+    smtp_user = os.environ.get("SMTP_USER", "")
+    smtp_password = os.environ.get("SMTP_PASSWORD", "")
+    email_from = os.environ.get("EMAIL_FROM", smtp_user)
+    email_to = os.environ.get("EMAIL_TO", "")
+
+    if not all([smtp_host, smtp_user, smtp_password, email_to]):
+        logger.info("Email not configured — skipping (set SMTP_HOST, SMTP_USER, SMTP_PASSWORD, EMAIL_TO)")
+        return
+
+    run_date = metadata["date"]
+    candidates = metadata["candidates_found"]
+    scanned = metadata["total_scanned"]
+    subject = f"100-Bagger Scan — {run_date} ({candidates} candidates from {scanned:,} tickers)"
+
+    # Wrap markdown in a minimal HTML shell so it renders readably in email clients
+    html = (
+        "<html><body style='font-family:monospace;white-space:pre-wrap;"
+        "font-size:13px;color:#222;max-width:900px;margin:0 auto;padding:24px'>"
+        + md_body.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        + "</body></html>"
+    )
+
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = subject
+    msg["From"] = email_from
+    msg["To"] = email_to
+    msg.attach(MIMEText(md_body, "plain"))
+    msg.attach(MIMEText(html, "html"))
+
+    try:
+        with smtplib.SMTP(smtp_host, smtp_port) as server:
+            server.starttls()
+            server.login(smtp_user, smtp_password)
+            server.sendmail(email_from, email_to, msg.as_string())
+        print(f"  Email sent to {email_to}")
+    except Exception as exc:
+        logger.error("Failed to send email: %s", exc)
 
 
 def main() -> None:
@@ -150,6 +197,8 @@ def main() -> None:
     print(f"  MD   : {md_path}")
     print(f"  Time : {runtime_s:.0f}s")
     print(f"{'='*60}\n")
+
+    _send_email(md_path.read_text(), metadata)
 
 
 if __name__ == "__main__":
