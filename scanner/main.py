@@ -18,6 +18,8 @@ from datetime import date
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
+import markdown as md_lib
+
 from .bulk_fetch import fetch_price_stats
 from .enricher import enrich
 from .report_builder import build_report
@@ -80,13 +82,27 @@ def _send_email(md_body: str, metadata: dict) -> None:
     scanned = metadata["total_scanned"]
     subject = f"100-Bagger Scan — {run_date} ({candidates} candidates from {scanned:,} tickers)"
 
-    # Wrap markdown in a minimal HTML shell so it renders readably in email clients
-    html = (
-        "<html><body style='font-family:monospace;white-space:pre-wrap;"
-        "font-size:13px;color:#222;max-width:900px;margin:0 auto;padding:24px'>"
-        + md_body.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-        + "</body></html>"
-    )
+    # Convert markdown to HTML (tables extension required for the results table)
+    html_body = md_lib.markdown(md_body, extensions=["tables"])
+    html = f"""<!DOCTYPE html>
+<html>
+<head>
+<style>
+  body {{ font-family: Arial, sans-serif; color: #222; max-width: 960px;
+         margin: 0 auto; padding: 24px; font-size: 14px; }}
+  h1 {{ color: #1a1a2e; border-bottom: 2px solid #1a1a2e; padding-bottom: 8px; }}
+  h2 {{ color: #1a1a2e; margin-top: 32px; }}
+  table {{ border-collapse: collapse; width: 100%; margin: 12px 0; }}
+  th {{ background: #1a1a2e; color: white; padding: 8px 12px; text-align: left; font-size: 13px; }}
+  td {{ padding: 7px 12px; border-bottom: 1px solid #e0e0e0; font-size: 13px; }}
+  tr:nth-child(even) {{ background: #f7f7f7; }}
+  hr {{ border: none; border-top: 1px solid #ddd; margin: 24px 0; }}
+  em {{ color: #888; font-size: 12px; }}
+  li {{ margin: 4px 0; }}
+</style>
+</head>
+<body>{html_body}</body>
+</html>"""
 
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
@@ -169,7 +185,13 @@ def main() -> None:
     if not args.no_enrich and candidates:
         print(f"Step 4/5 — Enriching {len(candidates)} candidates with fundamentals...")
         fundamentals = enrich(candidates)
-        print(f"  Enrichment complete: {len(fundamentals)} tickers enriched.\n")
+        # Drop candidates that scored below 5/10 on fundamentals
+        before = len(candidates)
+        candidates = [c for c in candidates if fundamentals.get(c.ticker) is None or fundamentals[c.ticker].score >= 5]
+        dropped = before - len(candidates)
+        if dropped:
+            print(f"  Score gate (>=5): removed {dropped} low-quality candidates.")
+        print(f"  Enrichment complete: {len(fundamentals)} tickers enriched, {len(candidates)} remain.\n")
     else:
         print("Step 4/5 — Skipping enrichment (--no-enrich or no candidates).\n")
 

@@ -3,7 +3,7 @@ screener.py — Apply 100-bagger candidate filters to PriceStats.
 
 Filter categories
 -----------------
-MOMENTUM   : 1-year return >= 30% AND at least one secondary condition.
+MOMENTUM   : 1-year return >= 50% AND at least TWO secondary conditions.
 BREAKOUT   : Tagged on MOMENTUM candidates with return >= 100%.
 DEEP_VALUE : Return -20% to +20%, near 52-week low, adequate volume.
 
@@ -23,12 +23,13 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 # PRIMARY
-MOMENTUM_MIN_RETURN_1Y = 30.0
+MOMENTUM_MIN_RETURN_1Y = 50.0
 
-# SECONDARY (at least one required alongside PRIMARY)
-NEAR_HIGH_MAX_PCT_BELOW = 20.0
+# SECONDARY (at least TWO required alongside PRIMARY)
+NEAR_HIGH_MAX_PCT_BELOW = 15.0
 BREAKOUT_MIN_RETURN_1Y = 100.0
-MOMENTUM_MIN_VOLUME = 50_000
+MOMENTUM_MIN_VOLUME = 100_000
+MOMENTUM_MIN_SECONDARIES = 2
 
 # DEEP VALUE
 DEEP_VALUE_RETURN_MIN = -20.0
@@ -61,12 +62,13 @@ def _check_momentum(stats: PriceStats) -> tuple[bool, str]:
     if ret is None or ret < MOMENTUM_MIN_RETURN_1Y:
         return False, ""
 
-    # Check secondary conditions
+    # Check secondary conditions — need at least MOMENTUM_MIN_SECONDARIES
     near_high = stats.pct_below_high <= NEAR_HIGH_MAX_PCT_BELOW
     breakout = ret >= BREAKOUT_MIN_RETURN_1Y
     liquid = stats.volume_avg_30d >= MOMENTUM_MIN_VOLUME
 
-    if not (near_high or breakout or liquid):
+    secondaries_met = sum([near_high, breakout, liquid])
+    if secondaries_met < MOMENTUM_MIN_SECONDARIES:
         return False, ""
 
     label = "BREAKOUT" if breakout else "MOMENTUM"
