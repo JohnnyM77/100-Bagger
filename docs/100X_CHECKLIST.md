@@ -37,9 +37,15 @@ EODHD has no figure, the line shows **n/a** and scores nothing (see CLAUDE.md).
 3. **Grade** the 9 quantitative lines. A company needs data on at least 6 of
    them to be ranked. Ranking is by % of available points, so n/a neither
    helps nor hurts.
-4. **Report**: top-30 table plus full checklist cards for the top 10, with the
-   four judgement lines set out as prompts. Saved as JSON and Markdown in
-   `scanner/data/outputs/` and emailed if SMTP is configured.
+4. **Opportunity ranking** (`scanner/opportunity.py`): Quality = average
+   grade on lines 1–5; Price = average grade on lines 11–13; score =
+   60% quality + 40% price, scaled to 100. A company needs quality ≥ 1.8/3,
+   at least 4 quality and 2 price lines with EODHD data. Buckets: *Quality at
+   a cheap price* / *at a fair price* / *priced for it — watchlist*. The top
+   30 also get their EODHD share price and distance from the 52-week high.
+5. **Report**: a PDF (ranked opportunities, a full checklist card for each
+   of the top 10, appendix of every company scored) attached to a short
+   email, plus JSON and Markdown in `scanner/data/outputs/`.
 
 Use `python -m scanner.hunt --ticker KPG --ticker XYZ` to run the checklist on
 any ASX names you already have in mind.

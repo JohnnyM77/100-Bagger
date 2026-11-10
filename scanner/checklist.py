@@ -74,6 +74,7 @@ class CompanyChecklist:
     metrics: dict[str, Metric] = field(default_factory=dict)
     evidence: dict[str, str] = field(default_factory=dict)  # for the qualitative items
     data_as_of: str = ""
+    description: str = ""
 
     @property
     def scored(self) -> list[Metric]:
@@ -361,6 +362,7 @@ def build(sym: str, f: dict, cfg: dict, *, aud_usd: Optional[float] = None,
         market_cap=market_cap(f),
         trailing_pe=trailing_pe(f),
         data_as_of=str(g.get("UpdatedAt") or ""),
+        description=str(g.get("Description") or "").strip(),
     )
 
     v, b = sales_cagr(f)

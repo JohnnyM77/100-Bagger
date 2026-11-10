@@ -113,3 +113,16 @@ def test_roic_not_graded_when_invested_capital_is_tiny():
     cl = build("TST.AU", rec, CFG)
     assert cl.metrics["roic"].value is None
     assert "not meaningful" in cl.metrics["roic"].basis
+
+
+def test_opportunity_ranking_prefers_quality_and_skips_thin_data():
+    from scanner.opportunity import rank_opportunities
+    good = build("GOOD.AU", _record(), CFG, aud_usd=0.65, sector_median_pe=20.0, peer_count=8)
+    thin = _record()
+    thin["Financials"] = {}
+    thin_cl = build("THIN.AU", thin, CFG, aud_usd=0.65, sector_median_pe=20.0, peer_count=8)
+    opps, skipped = rank_opportunities([thin_cl, good])
+    assert [o.checklist.symbol for o in opps] == ["GOOD.AU"]
+    assert "THIN.AU" in skipped
+    o = opps[0]
+    assert 0 < o.score <= 100 and o.bucket.startswith("Quality")

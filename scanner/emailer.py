@@ -7,7 +7,9 @@ Shared by the price scan (scanner.main) and the checklist hunt (scanner.hunt).
 import logging
 import os
 import smtplib
+from email.mime.application import MIMEApplication
 from email.mime.multipart import MIMEMultipart
+from pathlib import Path
 from email.mime.text import MIMEText
 
 import markdown as md_lib
@@ -15,7 +17,8 @@ import markdown as md_lib
 logger = logging.getLogger(__name__)
 
 
-def send_email(md_body: str, subject: str) -> None:
+def send_email(md_body: str, subject: str, *, html_body: str | None = None,
+               attachments: list[Path] | None = None) -> bool:
     """Send the markdown report as an HTML email using SMTP env vars."""
     smtp_host = os.environ.get("SMTP_HOST", "")
     smtp_port = int(os.environ.get("SMTP_PORT", "587"))
@@ -26,10 +29,11 @@ def send_email(md_body: str, subject: str) -> None:
 
     if not all([smtp_host, smtp_user, smtp_password, email_to]):
         logger.info("Email not configured — skipping (set SMTP_HOST, SMTP_USER, SMTP_PASSWORD, EMAIL_TO)")
-        return
+        return False
 
     # Convert markdown to HTML (tables extension required for the results table)
-    html_body = md_lib.markdown(md_body, extensions=["tables"])
+    if html_body is None:
+        html_body = md_lib.markdown(md_body, extensions=["tables"])
     html = f"""<!DOCTYPE html>
 <html>
 <head>
@@ -50,18 +54,26 @@ def send_email(md_body: str, subject: str) -> None:
 <body>{html_body}</body>
 </html>"""
 
-    msg = MIMEMultipart("alternative")
+    alt = MIMEMultipart("alternative")
+    alt.attach(MIMEText(md_body, "plain"))
+    alt.attach(MIMEText(html, "html"))
+    msg = MIMEMultipart("mixed")
     msg["Subject"] = subject
     msg["From"] = email_from
     msg["To"] = email_to
-    msg.attach(MIMEText(md_body, "plain"))
-    msg.attach(MIMEText(html, "html"))
+    msg.attach(alt)
+    for path in attachments or []:
+        part = MIMEApplication(Path(path).read_bytes(), Name=Path(path).name)
+        part["Content-Disposition"] = f'attachment; filename="{Path(path).name}"'
+        msg.attach(part)
 
     try:
         with smtplib.SMTP(smtp_host, smtp_port) as server:
             server.starttls()
             server.login(smtp_user, smtp_password)
             server.sendmail(email_from, email_to, msg.as_string())
-        print(f"  Email sent to {email_to}")
+        print("  Email sent")
+        return True
     except Exception as exc:
         logger.error("Failed to send email: %s", exc)
+        return False

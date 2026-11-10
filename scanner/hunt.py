@@ -33,7 +33,10 @@ from typing import Optional
 from . import eodhd
 from .checklist import (GRADE_ICON, QUANT_ORDER, CompanyChecklist, build,
                         load_config, render_card, sector_medians, trailing_pe)
+from .bulk_fetch import fetch_price_stats
 from .emailer import send_email
+from .opportunity import Opportunity, rank_opportunities
+from .pdf_report import build_html, email_html, render_pdf
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger(__name__)
@@ -160,9 +163,10 @@ def _row(i: int, c: CompanyChecklist) -> str:
             f"**{c.points}/{c.max_points}** ({pct}) | " + " | ".join(cells) + " |")
 
 
-def build_markdown(ranked: list[CompanyChecklist], meta: dict, cfg: dict) -> str:
+def build_markdown(ranked: list[CompanyChecklist], meta: dict, cfg: dict,
+                   opps: Optional[list[Opportunity]] = None) -> str:
     top_n = cfg["hunt"].get("top_n", 30)
-    top = ranked[:top_n]
+    top = [o.checklist for o in opps[:top_n]] if opps else ranked[:top_n]
     lines = [
         f"# 100-Bagger Hunt (ASX) — {meta['date']}",
         "",
@@ -180,7 +184,22 @@ def build_markdown(ranked: list[CompanyChecklist], meta: dict, cfg: dict) -> str
         f"- **FX:** {meta['fx_note']}",
         f"- **Fundamentals failures:** {meta['failed']}",
         "",
-        f"## Top {len(top)}",
+    ]
+    if opps:
+        lines += [
+            f"## Top {min(top_n, len(opps))} opportunities (60% quality + 40% price)",
+            "",
+            "| # | Ticker | Company | Score | Quality | Price | Bucket | Price vs 52w high (EODHD) |",
+            "|---|---|---|---|---|---|---|---|",
+        ]
+        for i, o in enumerate(opps[:top_n], 1):
+            ps = o.price_stats
+            px = f"A${ps.current_price:,.3g}, {ps.pct_below_high:.0f}% below high" if ps else "n/a"
+            lines.append(f"| {i} | {eodhd.display_ticker(o.checklist.symbol)} | {o.checklist.name[:28]} | "
+                         f"**{o.score:.0f}** | {o.quality:.1f}/3 | {o.price:.1f}/3 | {o.bucket} | {px} |")
+        lines.append("")
+    lines += [
+        f"## Checklist grades — same {len(top)} companies",
         "",
         "| # | Ticker | Company | Sector | Score | " + " | ".join(SHORT[k] for k in QUANT_ORDER) + " |",
         "|---|---|---|---|---|" + "---|" * len(QUANT_ORDER),
@@ -197,13 +216,20 @@ def build_markdown(ranked: list[CompanyChecklist], meta: dict, cfg: dict) -> str
     return "\n".join(lines)
 
 
-def write_report(ranked: list[CompanyChecklist], meta: dict, cfg: dict) -> tuple[Path, Path, str]:
+def write_report(ranked: list[CompanyChecklist], meta: dict, cfg: dict,
+                 opps: Optional[list[Opportunity]] = None) -> tuple[Path, Path, str]:
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     stem = f"{meta['date']}_checklist_hunt"
     json_path = OUTPUT_DIR / f"{stem}.json"
-    json_path.write_text(json.dumps({"metadata": meta, "ranked": [c.to_dict() for c in ranked]},
-                                    indent=2, default=str))
-    md = build_markdown(ranked, meta, cfg)
+    json_path.write_text(json.dumps({
+        "metadata": meta,
+        "opportunities": [{"symbol": o.checklist.symbol, "score": round(o.score, 1),
+                           "quality": round(o.quality, 2), "price": round(o.price, 2),
+                           "bucket": o.bucket, "strengths": o.strengths, "watch_outs": o.watch_outs,
+                           "price_stats": o.price_stats.__dict__ if o.price_stats else None}
+                          for o in (opps or [])],
+        "ranked": [c.to_dict() for c in ranked]}, indent=2, default=str))
+    md = build_markdown(ranked, meta, cfg, opps)
     md_path = OUTPUT_DIR / f"{stem}.md"
     md_path.write_text(md)
     return json_path, md_path, md
@@ -274,13 +300,22 @@ def main() -> None:
     cls, fx_note = score_all(funds, cfg)
     ranked = rank(cls, cfg["hunt"].get("min_scored_criteria", 6))
 
-    print("Step 4/4 — report...")
+    opps, not_ranked = rank_opportunities(cls, cfg["hunt"].get("opportunity"))
+    print(f"  {len(opps)} opportunities ranked ({len(not_ranked)} not ranked: thin data or quality gate)")
+
+    print("Step 4/4 — EODHD prices for the top names, then report...")
+    top_n = cfg["hunt"].get("top_n", 30)
+    stats = fetch_price_stats([o.checklist.symbol for o in opps[:top_n]])
+    for o in opps[:top_n]:
+        o.price_stats = stats.get(o.checklist.symbol)
+
     meta = {
         "date": date.today().isoformat(),
         "source": eodhd.SOURCE,
         "prefiltered": len(syms),
         "scored": len(cls),
         "ranked": len(ranked),
+        "opportunities": len(opps),
         "failed": len(failed),
         "failures": failed,
         "fx_note": fx_note,
@@ -288,13 +323,25 @@ def main() -> None:
         "disk_cache_hits": eodhd.stats["disk_hits"],
         "runtime_seconds": round(time.time() - t0, 1),
     }
-    json_path, md_path, md = write_report(ranked, meta, cfg)
+    json_path, md_path, md = write_report(ranked, meta, cfg, opps)
     print(f"  JSON: {json_path}\n  MD  : {md_path}")
-    if not args.no_email:
-        top = ranked[0] if ranked else None
-        lead = f" — #1 {eodhd.display_ticker(top.symbol)} {top.points}/{top.max_points}" if top else ""
-        send_email(md, f"100-Bagger Hunt (ASX) — {meta['date']} ({len(ranked)} ranked){lead}")
 
+    pdf_path: Optional[Path] = OUTPUT_DIR / f"{meta['date']}_100_bagger_hunt.pdf"
+    try:
+        render_pdf(build_html(opps, cls, meta, cfg), pdf_path)
+        print(f"  PDF : {pdf_path}")
+    except Exception as exc:  # report the failure in the email, never hide it
+        logger.error("PDF render failed: %s", exc)
+        pdf_path = None
+
+    if not args.no_email:
+        lead = ""
+        if opps:
+            o = opps[0]
+            lead = f" — #1 {eodhd.display_ticker(o.checklist.symbol)} ({o.score:.0f})"
+        send_email(md, f"100-Bagger Hunt (ASX) — {meta['date']} ({len(opps)} opportunities){lead}",
+                   html_body=email_html(opps, meta, pdf_path is not None),
+                   attachments=[pdf_path] if pdf_path else None)
 
 if __name__ == "__main__":
     main()

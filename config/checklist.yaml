@@ -99,3 +99,11 @@ hunt:
   min_peers_for_median: 5          # sector peers needed for the PE-median test
   min_scored_criteria: 6           # of 9 quantitative, to be ranked
   top_n: 30
+  cards: 10                        # full checklist cards in the PDF
+  # "Best opportunities" ranking (scanner/opportunity.py):
+  # score = 60% quality grade + 40% price grade, scaled to 100.
+  opportunity:
+    quality_weight: 0.6
+    min_quality_graded: 4          # of 5 quality lines with EODHD data
+    min_price_graded: 2            # of 3 price lines with EODHD data
+    min_quality: 1.8               # average quality grade (0-3) to qualify

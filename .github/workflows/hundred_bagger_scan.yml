@@ -52,7 +52,9 @@ jobs:
             eodhd-fundamentals-
 
       - name: Install deps
-        run: pip install -r scanner/requirements.txt pytest
+        run: |
+          pip install -r scanner/requirements.txt pytest
+          python -m playwright install --with-deps chromium
 
       - name: Tests (incl. EODHD-only guard)
         run: python -m pytest tests/test_checklist.py tests/test_eodhd_only.py -q
