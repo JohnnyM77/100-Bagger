@@ -1,26 +1,25 @@
 """
 main.py — Orchestrator for the 100-Bagger stock scanner.
 
+Price-pattern scan (MOMENTUM / BREAKOUT / DEEP_VALUE). For the 100x
+checklist search engine use ``python -m scanner.hunt``.
+
+All data comes from EODHD (CLAUDE.md). SGX is not on the EODHD plan.
+
 Usage:
-    python -m scanner.main                        # ASX + SGX, full run
-    python -m scanner.main --exchange asx         # ASX only
-    python -m scanner.main --exchange sgx         # SGX only
+    python -m scanner.main                        # ASX, full run
     python -m scanner.main --dry-run              # first 50 tickers only
     python -m scanner.main --no-enrich            # skip fundamental enrichment
 """
 
 import argparse
 import logging
-import os
-import smtplib
 import time
 from datetime import date
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
 
-import markdown as md_lib
-
+from . import eodhd
 from .bulk_fetch import fetch_price_stats
+from .emailer import send_email
 from .enricher import enrich
 from .report_builder import build_report
 from .screener import screen
@@ -38,13 +37,13 @@ DRY_RUN_LIMIT = 50
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments."""
     parser = argparse.ArgumentParser(
-        description="100-Bagger stock scanner for ASX and SGX."
+        description="100-Bagger price scanner for the ASX (EODHD data only)."
     )
     parser.add_argument(
         "--exchange",
-        choices=["asx", "sgx", "all"],
-        default="all",
-        help="Exchange(s) to scan (default: all)",
+        choices=["asx"],
+        default="asx",
+        help="Exchange to scan (ASX only: SGX is not on the EODHD plan)",
     )
     parser.add_argument(
         "--dry-run",
@@ -64,72 +63,15 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def _send_email(md_body: str, metadata: dict) -> None:
-    """Send the markdown report as an HTML email using SMTP env vars."""
-    smtp_host = os.environ.get("SMTP_HOST", "")
-    smtp_port = int(os.environ.get("SMTP_PORT", "587"))
-    smtp_user = os.environ.get("SMTP_USER", "")
-    smtp_password = os.environ.get("SMTP_PASSWORD", "")
-    email_from = os.environ.get("EMAIL_FROM", smtp_user)
-    email_to = os.environ.get("EMAIL_TO", "")
-
-    if not all([smtp_host, smtp_user, smtp_password, email_to]):
-        logger.info("Email not configured — skipping (set SMTP_HOST, SMTP_USER, SMTP_PASSWORD, EMAIL_TO)")
-        return
-
-    run_date = metadata["date"]
-    candidates = metadata["candidates_found"]
-    scanned = metadata["total_scanned"]
-    subject = f"100-Bagger Scan — {run_date} ({candidates} candidates from {scanned:,} tickers)"
-
-    # Convert markdown to HTML (tables extension required for the results table)
-    html_body = md_lib.markdown(md_body, extensions=["tables"])
-    html = f"""<!DOCTYPE html>
-<html>
-<head>
-<style>
-  body {{ font-family: Arial, sans-serif; color: #222; max-width: 960px;
-         margin: 0 auto; padding: 24px; font-size: 14px; }}
-  h1 {{ color: #1a1a2e; border-bottom: 2px solid #1a1a2e; padding-bottom: 8px; }}
-  h2 {{ color: #1a1a2e; margin-top: 32px; }}
-  table {{ border-collapse: collapse; width: 100%; margin: 12px 0; }}
-  th {{ background: #1a1a2e; color: white; padding: 8px 12px; text-align: left; font-size: 13px; }}
-  td {{ padding: 7px 12px; border-bottom: 1px solid #e0e0e0; font-size: 13px; }}
-  tr:nth-child(even) {{ background: #f7f7f7; }}
-  hr {{ border: none; border-top: 1px solid #ddd; margin: 24px 0; }}
-  em {{ color: #888; font-size: 12px; }}
-  li {{ margin: 4px 0; }}
-</style>
-</head>
-<body>{html_body}</body>
-</html>"""
-
-    msg = MIMEMultipart("alternative")
-    msg["Subject"] = subject
-    msg["From"] = email_from
-    msg["To"] = email_to
-    msg.attach(MIMEText(md_body, "plain"))
-    msg.attach(MIMEText(html, "html"))
-
-    try:
-        with smtplib.SMTP(smtp_host, smtp_port) as server:
-            server.starttls()
-            server.login(smtp_user, smtp_password)
-            server.sendmail(email_from, email_to, msg.as_string())
-        print(f"  Email sent to {email_to}")
-    except Exception as exc:
-        logger.error("Failed to send email: %s", exc)
-
-
 def main() -> None:
     """Run the full scan pipeline."""
     args = parse_args()
     start_time = time.time()
     run_date = date.today().isoformat()
 
-    exchanges = (
-        ["ASX", "SGX"] if args.exchange == "all" else [args.exchange.upper()]
-    )
+    if not eodhd.is_configured():
+        raise SystemExit("EODHD_API_TOKEN is not set. This bot only uses EODHD data — refusing to run without it.")
+    exchanges = [args.exchange.upper()]
 
     print(f"\n{'='*60}")
     print(f"  100-Bagger Scanner — {run_date}")
@@ -220,7 +162,9 @@ def main() -> None:
     print(f"  Time : {runtime_s:.0f}s")
     print(f"{'='*60}\n")
 
-    _send_email(md_path.read_text(), metadata)
+    subject = (f"100-Bagger Scan — {run_date} ({len(candidates)} candidates "
+               f"from {len(tickers):,} tickers)")
+    send_email(md_path.read_text(), subject)
 
 
 if __name__ == "__main__":

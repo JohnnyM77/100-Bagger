@@ -4,6 +4,13 @@
 
 An autonomous stock-screening agent targeting **ASX** (Australia) and **SGX** (Singapore) that identifies potential multibagger stocks using empirically-validated criteria from the most rigorous academic study ever conducted on ten-bagger returns.
 
+## ⚡ Start here (Nov 2026)
+
+- **Data rule:** every price and fundamental comes from **EODHD** (same account/token as Bob the Bot). The bot never guesses a number: if EODHD lacks it, it prints `n/a`. See **[CLAUDE.md](CLAUDE.md)**.
+- **100x checklist search engine (ASX):** `python -m scanner.hunt` grades every profitable ASX small/mid cap on the 13-point checklist from *How to hunt for 100-baggers* (Mayer's *100 Baggers*). `python -m scanner.hunt --ticker KPG` prints one company's checklist card. Details: **[docs/100X_CHECKLIST.md](docs/100X_CHECKLIST.md)**.
+- **Price scan:** `python -m scanner.main` (momentum / breakout / deep value), now on EODHD.
+- Needs the `EODHD_API_TOKEN` GitHub secret. SGX is not on the EODHD plan, so the scanners are ASX-only. `src/` is the legacy FMP pipeline.
+
 ## Research Foundation
 
 This system is built on three complementary sources:

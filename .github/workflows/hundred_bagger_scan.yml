@@ -2,13 +2,30 @@ name: 100-Bagger Scanner
 
 on:
   workflow_dispatch:
+    inputs:
+      mode:
+        description: "hunt = 100x checklist search, price = momentum/deep-value scan"
+        required: true
+        default: both
+        type: choice
+        options: [both, hunt, price]
   schedule:
-    - cron: "0 22 * * 5"   # Saturday 06:00 Singapore time (Friday 22:00 UTC)
+    - cron: "0 22 * * 5"   # Saturday 08:00/09:00 Sydney (Friday 22:00 UTC)
 
 jobs:
   scan:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 90
+
+    env:
+      # All price and fundamental data comes from EODHD (see CLAUDE.md).
+      EODHD_API_TOKEN: ${{ secrets.EODHD_API_TOKEN }}
+      SMTP_HOST: ${{ secrets.SMTP_HOST }}
+      SMTP_PORT: ${{ secrets.SMTP_PORT }}
+      SMTP_USER: ${{ secrets.SMTP_USER }}
+      SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+      EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
+      EMAIL_TO: ${{ secrets.EMAIL_TO }}
 
     steps:
       - uses: actions/checkout@v4
@@ -25,20 +42,31 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-scanner-pip-
 
-      - name: Install deps
-        run: pip install -r scanner/requirements.txt
+      # EODHD fundamentals are cached for 7 days to save API calls.
+      - name: Cache EODHD fundamentals
+        uses: actions/cache@v4
+        with:
+          path: scanner/data/cache
+          key: eodhd-fundamentals-${{ github.run_id }}
+          restore-keys: |
+            eodhd-fundamentals-
 
-      - name: Run scanner
-        env:
-          SMTP_HOST: ${{ secrets.SMTP_HOST }}
-          SMTP_PORT: ${{ secrets.SMTP_PORT }}
-          SMTP_USER: ${{ secrets.SMTP_USER }}
-          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
-          EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
-          EMAIL_TO: ${{ secrets.EMAIL_TO }}
+      - name: Install deps
+        run: pip install -r scanner/requirements.txt pytest
+
+      - name: Tests (incl. EODHD-only guard)
+        run: python -m pytest tests/test_checklist.py tests/test_eodhd_only.py -q
+
+      - name: 100x checklist hunt (ASX)
+        if: github.event_name == 'schedule' || inputs.mode == 'both' || inputs.mode == 'hunt'
+        run: python -m scanner.hunt
+
+      - name: Price scan (ASX)
+        if: github.event_name == 'schedule' || inputs.mode == 'both' || inputs.mode == 'price'
         run: python -m scanner.main
 
       - name: Upload results
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: scan-results-${{ github.run_id }}

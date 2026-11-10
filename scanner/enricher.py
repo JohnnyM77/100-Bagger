@@ -1,9 +1,9 @@
 """
 enricher.py — Fetch fundamental data and score filtered candidates.
 
-Uses yf.Ticker().info (one at a time) for the small candidate set
-(typically 50-200 stocks).  Every field degrades gracefully to None
-if the data is unavailable.
+Uses EODHD /fundamentals (cached 7 days, see scanner/eodhd.py) for the
+small candidate set (typically 50-200 stocks).  Every field is None if
+EODHD does not have it — never estimated.
 
 Scoring (0-10, 1 point per condition met):
   1.  trailing_pe < 30
@@ -19,21 +19,16 @@ Scoring (0-10, 1 point per condition met):
 """
 
 import logging
-import time
 from dataclasses import dataclass
 
-import yfinance as yf
-
+from . import eodhd
 from .screener import ScreenResult
 
 logger = logging.getLogger(__name__)
 
-SLEEP_BETWEEN_CALLS = 0.5   # seconds
-
-
 @dataclass
 class FundamentalSnapshot:
-    """Raw fundamental fields pulled from yf.Ticker().info."""
+    """Fundamental fields from the EODHD fundamentals record."""
 
     market_cap: float | None
     trailing_pe: float | None
@@ -50,16 +45,43 @@ class FundamentalSnapshot:
     score: int = 0                    # 0-10
 
 
-def _safe_float(info: dict, key: str) -> float | None:
-    """Extract a float from yf info dict, returning None on missing / non-numeric."""
-    val = info.get(key)
-    if val is None:
-        return None
-    try:
-        f = float(val)
-        return f if f == f else None   # filter NaN
-    except (TypeError, ValueError):
-        return None
+def _pos(v: object) -> float | None:
+    """EODHD reports a missing PE as 0; treat <= 0 as not available."""
+    f = eodhd.num(v)
+    return f if f is not None and f > 0 else None
+
+
+def _latest_yearly(f: dict, statement: str) -> dict:
+    rows = (((f.get("Financials") or {}).get(statement) or {}).get("yearly")) or {}
+    if not rows:
+        return {}
+    return rows[max(rows)] or {}
+
+
+def snapshot_from_eodhd(f: dict) -> FundamentalSnapshot:
+    hi = f.get("Highlights") or {}
+    val = f.get("Valuation") or {}
+    bs = _latest_yearly(f, "Balance_Sheet")
+    cf = _latest_yearly(f, "Cash_Flow")
+    debt = eodhd.num(bs.get("shortLongTermDebtTotal"))
+    equity = eodhd.num(bs.get("totalStockholderEquity"))
+    cash = eodhd.num(bs.get("cashAndShortTermInvestments"))
+    if cash is None:
+        cash = eodhd.num(bs.get("cash"))
+    return FundamentalSnapshot(
+        market_cap=eodhd.num(hi.get("MarketCapitalization")),
+        trailing_pe=_pos(val.get("TrailingPE")),
+        forward_pe=_pos(val.get("ForwardPE")),
+        price_to_book=_pos(val.get("PriceBookMRQ")),
+        price_to_sales=_pos(val.get("PriceSalesTTM")),
+        revenue_growth=eodhd.num(hi.get("QuarterlyRevenueGrowthYOY")),
+        earnings_growth=eodhd.num(hi.get("QuarterlyEarningsGrowthYOY")),
+        return_on_equity=eodhd.num(hi.get("ReturnOnEquityTTM")),
+        debt_to_equity=(debt / equity) if debt is not None and equity and equity > 0 else None,
+        free_cashflow=eodhd.num(cf.get("freeCashFlow")),
+        total_cash=cash,
+        total_debt=debt,
+    )
 
 
 def _score(snap: FundamentalSnapshot, return_1y_pct: float | None) -> int:
@@ -112,29 +134,11 @@ def enrich(candidates: list[ScreenResult]) -> dict[str, FundamentalSnapshot]:
         print(f"  Enriching {ticker} ({idx}/{total})...", end="\r")
 
         try:
-            info = yf.Ticker(ticker).info or {}
-
-            snap = FundamentalSnapshot(
-                market_cap=_safe_float(info, "marketCap"),
-                trailing_pe=_safe_float(info, "trailingPE"),
-                forward_pe=_safe_float(info, "forwardPE"),
-                price_to_book=_safe_float(info, "priceToBook"),
-                price_to_sales=_safe_float(info, "priceToSalesTrailing12Months"),
-                revenue_growth=_safe_float(info, "revenueGrowth"),
-                earnings_growth=_safe_float(info, "earningsGrowth"),
-                return_on_equity=_safe_float(info, "returnOnEquity"),
-                debt_to_equity=_safe_float(info, "debtToEquity"),
-                free_cashflow=_safe_float(info, "freeCashflow"),
-                total_cash=_safe_float(info, "totalCash"),
-                total_debt=_safe_float(info, "totalDebt"),
-            )
+            snap = snapshot_from_eodhd(eodhd.fundamentals(ticker))
             snap.score = _score(snap, candidate.price_stats.return_1y_pct)
             results[ticker] = snap
-
-        except Exception as exc:
-            logger.warning("Enrichment failed for %s: %s", ticker, exc)
-
-        time.sleep(SLEEP_BETWEEN_CALLS)
+        except eodhd.EODHDError as exc:
+            logger.warning("EODHD fundamentals failed for %s: %s", ticker, exc)
 
     print()   # newline after the \r progress line
     logger.info("Enrichment complete: %d/%d tickers", len(results), total)

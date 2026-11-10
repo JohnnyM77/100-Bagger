@@ -1,0 +1,88 @@
+# 100x checklist — thresholds from "How to hunt for 100-baggers, an investment
+# check-list" (Kevin, 100 Bagger Hunting, Sep 2023), based on Christopher
+# Mayer's "100 Baggers". Each criterion is graded Yikes / Meh / Good / Great
+# (0 / 1 / 2 / 3 points). Edit the numbers here, not in code.
+#
+# Every input is computed from EODHD data (scanner/eodhd.py). If EODHD has
+# no figure, the criterion is "n/a" and earns no points — it is never guessed.
+
+# Percentages are written as whole numbers (25 = 25%).
+criteria:
+  sales_cagr:            # 1. Sales growth CAGR (up to 10 fiscal years, min 3)
+    label: "Sales growth CAGR"
+    better: higher
+    meh: 10              # >= 10%  Meh   (< 10% Yikes)
+    good: 15             # >  15%  Good
+    great: 25            # >  25%  Great
+  gross_margin:          # 2. Gross margin, latest fiscal year
+    label: "Gross margin"
+    better: higher
+    meh: 20
+    good: 50
+    great: 70
+  eps_cagr:              # 3. EPS growth CAGR (up to 5 fiscal years, min 3)
+    label: "EPS growth"
+    better: higher
+    meh: 5
+    good: 10
+    great: 20
+  roe:                   # 4. Return on equity, TTM
+    label: "Return on equity"
+    better: higher
+    meh: 5
+    good: 15
+    great: 25
+  roic:                  # 5. ROIC = NOPAT / avg(equity + debt - cash)
+    label: "Return on invested capital"
+    better: higher
+    meh: 5
+    good: 15
+    great: 25
+  analysts:              # 9. Number of analysts (fewer = more under-followed)
+    label: "Number of analysts"
+    better: lower
+    meh: 10              # <= 10 Meh  (> 10 Yikes)
+    good: 4              # <  5  Good
+    great: 0             # 0     Great
+  pe_discount:           # 11. Discount of trailing P/E to sector-peer median
+    label: "Discount to median (PE)"
+    better: higher
+    meh: 15
+    good: 30
+    great: 50
+  peg:                   # 12. PEG (EODHD forward PEG; else trailing PE / EPS CAGR, labelled)
+    label: "PEG ratio"
+    better: lower
+    meh: 2
+    good: 1
+    great: 0.7
+  market_cap_usd_bn:     # 13. Market cap in USD billions (AUD converted at EODHD AUDUSD)
+    label: "Small market cap (US$bn)"
+    better: lower
+    meh: 10
+    good: 5
+    great: 1
+
+# 6, 7, 8, 10 are judgement calls. The bot never grades them; it lists them
+# with whatever EODHD evidence exists so a human can.
+qualitative:
+  capital_allocation: "Sound capital allocation (No / Sort of / Yes / Holy)"
+  incentives: "Incentives aligned / skin in the game (None / Sort of / Yes / Holy S&)"
+  moat: "Long-term moat (None / Sort of / Yes / Holy S&)"
+  culture: "Great work culture / decentralised (To avoid / OK / Unique / Cult-like)"
+
+# Search-engine settings (python -m scanner.hunt)
+hunt:
+  exchange: AU                     # EODHD code for ASX
+  min_market_cap_aud: 20000000     # skip shells / micro-illiquid
+  max_market_cap_aud: 15000000000  # > US$10bn is "Yikes" anyway
+  min_avg_daily_value_aud: 20000   # avgvol_200d * price
+  require_positive_eps: true       # checklist is for profitable compounders
+  # The article notes energy & resources flood high-ROE screens (cyclical
+  # peaks). Excluded by default; delete lines to include them.
+  exclude_sectors:
+    - "Basic Materials"
+    - "Energy"
+  min_peers_for_median: 5          # sector peers needed for the PE-median test
+  min_scored_criteria: 6           # of 9 quantitative, to be ranked
+  top_n: 30
