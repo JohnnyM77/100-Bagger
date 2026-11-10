@@ -71,13 +71,14 @@ def prefilter_universe(hcfg: dict) -> list[dict]:
     rows = _screen_band(hcfg["exchange"], hcfg["min_market_cap_aud"], hcfg["max_market_cap_aud"], extra)
     seen, out = set(), []
     excluded = set(hcfg.get("exclude_sectors") or [])
+    excl_ind = tuple(hcfg.get("exclude_industries") or [])
     min_value = hcfg.get("min_avg_daily_value_aud", 0)
     for r in rows:
         code = r.get("code")
         if not code or code in seen:
             continue
         seen.add(code)
-        if r.get("sector") in excluded:
+        if r.get("sector") in excluded or str(r.get("industry") or "").startswith(excl_ind):
             continue
         px, vol = eodhd.num(r.get("adjusted_close")), eodhd.num(r.get("avgvol_200d"))
         if px is None or vol is None or px * vol < min_value:
@@ -173,7 +174,8 @@ def build_markdown(ranked: list[CompanyChecklist], meta: dict, cfg: dict) -> str
         f"{meta['disk_cache_hits']} fundamentals from 7-day cache)",
         f"- **ASX names after pre-filter:** {meta['prefiltered']:,} "
         f"(mkt cap A${cfg['hunt']['min_market_cap_aud']/1e6:,.0f}m–A${cfg['hunt']['max_market_cap_aud']/1e9:,.0f}bn, "
-        f"EPS > 0, excluded: {', '.join(cfg['hunt'].get('exclude_sectors') or ['none'])})",
+        f"EPS > 0, excluded sectors: {', '.join(cfg['hunt'].get('exclude_sectors') or ['none'])}; "
+        f"excluded industries: {', '.join(cfg['hunt'].get('exclude_industries') or ['none'])})",
         f"- **Scored:** {meta['scored']:,} · **Ranked** (≥{cfg['hunt']['min_scored_criteria']} of 9 criteria with data): {meta['ranked']:,}",
         f"- **FX:** {meta['fx_note']}",
         f"- **Fundamentals failures:** {meta['failed']}",

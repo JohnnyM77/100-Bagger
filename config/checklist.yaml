@@ -83,6 +83,19 @@ hunt:
   exclude_sectors:
     - "Basic Materials"
     - "Energy"
+  # Funds, lenders, insurers and REITs: "revenue" is investment gains or
+  # interest, so sales growth / gross margin / ROIC don't measure the business
+  # (the first live run had LICs at 3,000% gross margin). Matched as a prefix
+  # on the EODHD industry. Delete lines to include them.
+  exclude_industries:
+    - "Asset Management"
+    - "Banks"
+    - "Credit Services"
+    - "Mortgage Finance"
+    - "Insurance -"
+    - "Financial Conglomerates"
+    - "REIT"
+    - "Shell Companies"
   min_peers_for_median: 5          # sector peers needed for the PE-median test
   min_scored_criteria: 6           # of 9 quantitative, to be ranked
   top_n: 30

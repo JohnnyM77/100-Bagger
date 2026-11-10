@@ -96,3 +96,20 @@ def test_symbol_mapping():
     assert eodhd.symbol("ASX:KPG") == "KPG.AU"
     with pytest.raises(eodhd.EODHDNotCovered):
         eodhd.symbol("D05.SI")
+
+
+def test_out_of_range_gross_margin_is_na():
+    rec = _record()
+    rec["Financials"]["Income_Statement"]["yearly"]["2025-06-30"]["grossProfit"] = "8000"
+    cl = build("TST.AU", rec, CFG)
+    assert cl.metrics["gross_margin"].value is None
+    assert "outside 0–100%" in cl.metrics["gross_margin"].basis
+
+
+def test_roic_not_graded_when_invested_capital_is_tiny():
+    rec = _record()
+    for row in rec["Financials"]["Balance_Sheet"]["yearly"].values():
+        row["totalAssets"] = "100000"
+    cl = build("TST.AU", rec, CFG)
+    assert cl.metrics["roic"].value is None
+    assert "not meaningful" in cl.metrics["roic"].basis

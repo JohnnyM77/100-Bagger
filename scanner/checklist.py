@@ -31,6 +31,10 @@ CONFIG_PATH = Path(__file__).resolve().parents[1] / "config" / "checklist.yaml"
 GRADES = ["Yikes", "Meh", "Good", "Great"]
 GRADE_ICON = {"Yikes": "🟥", "Meh": "🟨", "Good": "🟩", "Great": "🟢", None: "⬜"}
 
+# ROIC is not graded when invested capital is a sliver of total assets: the
+# ratio then measures the denominator, not the business (WAA showed 2,816%).
+MIN_IC_SHARE_OF_ASSETS = 0.05
+
 QUANT_ORDER = [
     "sales_cagr", "gross_margin", "eps_cagr", "roe", "roic",
     "analysts", "pe_discount", "peg", "market_cap_usd_bn",
@@ -191,7 +195,11 @@ def gross_margin(f: dict) -> tuple[Optional[float], str]:
     gp, rev = num(r.get("grossProfit")), num(r.get("totalRevenue"))
     if gp is None or not rev or rev <= 0:
         return None, f"FY{d[:4]} gross profit or revenue missing in EODHD"
-    return gp / rev * 100, f"FY{d[:4]} grossProfit / totalRevenue"
+    gm = gp / rev * 100
+    if not 0 <= gm <= 100:
+        return None, (f"FY{d[:4]} grossProfit/totalRevenue = {gm:,.0f}% — outside 0–100%, "
+                      "so EODHD's revenue line doesn't fit this business; not graded")
+    return gm, f"FY{d[:4]} grossProfit / totalRevenue"
 
 
 def eps_points(f: dict) -> list[tuple[str, Optional[float]]]:
@@ -254,6 +262,10 @@ def roic(f: dict) -> tuple[Optional[float], str]:
     ic = sum(ics) / len(ics)
     if ic <= 0:
         return None, "invested capital ≤ 0 (net cash exceeds equity+debt) — ROIC not meaningful"
+    assets = num(bs[dates[-1]].get("totalAssets"))
+    if assets and assets > 0 and ic < MIN_IC_SHARE_OF_ASSETS * assets:
+        return None, (f"invested capital is {ic / assets:.0%} of total assets (net cash ≈ equity + debt) "
+                      "— ROIC not meaningful, not graded")
     return nopat / ic * 100, f"FY{d[:4]} NOPAT ({tax_note}) / avg invested capital ({len(ics)}y)"
 
 

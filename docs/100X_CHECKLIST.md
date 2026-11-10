@@ -29,8 +29,10 @@ EODHD has no figure, the line shows **n/a** and scores nothing (see CLAUDE.md).
 
 1. **EODHD screener**: every ASX stock with market cap A$20m–A$15bn and
    positive EPS. Energy and Basic Materials are excluded by default, because
-   the article warns that resources flood high-ROE screens. Average daily
-   value traded must be at least A$20k.
+   the article warns that resources flood high-ROE screens. So are funds/LICs,
+   banks, lenders, insurers and REITs: their "revenue" is investment gains or
+   interest, and the first live run had LICs at 3,000% gross margin. Average
+   daily value traded must be at least A$20k.
 2. **EODHD fundamentals** for each survivor (cached 7 days).
 3. **Grade** the 9 quantitative lines. A company needs data on at least 6 of
    them to be ranked. Ranking is by % of available points, so n/a neither
@@ -50,5 +52,10 @@ any ASX names you already have in mind.
 - EODHD's standardised `grossProfit` can differ from a company's own
   definition, especially for services businesses. Check the annual report
   before relying on #2.
+- A gross margin outside 0–100%, or ROIC where invested capital is under 5%
+  of total assets, is shown as n/a with the reason, never graded.
+- Ranking is by % of the points available, so a recent listing with 3 years
+  of history (EPS growth n/a) can rank above a 10-year compounder. Look at
+  the "x/24" figure as well as the %.
 - Small ASX companies often have no EODHD analyst or PEG record, so lines 9
   and 12 are frequently n/a. That is reported honestly, not filled in.
