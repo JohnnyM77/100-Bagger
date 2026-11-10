@@ -6,3 +6,9 @@ __pycache__/
 dist/
 build/
 .env
+
+# EODHD caches and run outputs
+scanner/data/cache/
+scanner/data/universe_cache*.json
+scanner/data/outputs/*
+!scanner/data/outputs/.gitkeep

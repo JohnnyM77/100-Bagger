@@ -1,36 +1,24 @@
 """
-universe.py — Fetch and cache the full ticker universe for ASX and SGX.
+universe.py — Fetch and cache the ticker universe from EODHD.
 
-ASX source : official ASX CSV (free, no auth, updated nightly)
-SGX source : stockanalysis.com scrape with graceful fallback
-Cache      : scanner/data/universe_cache.json, 24-hour TTL
+ASX source : EODHD /exchange-symbol-list/AU (Common Stock only)
+SGX        : not on the EODHD plan — skipped with a warning, never borrowed
+             from another source (see CLAUDE.md).
+Cache      : scanner/data/universe_cache_eodhd.json, 24-hour TTL
 """
 
 import json
 import logging
-import re
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
 
-import pandas as pd
-import requests
-from bs4 import BeautifulSoup
+from . import eodhd
 
 logger = logging.getLogger(__name__)
 
-ASX_CSV_URL = "https://www.asx.com.au/asx/research/ASXListedCompanies.csv"
-SGX_URL = "https://stockanalysis.com/list/singapore-exchange/"
-CACHE_PATH = Path(__file__).parent / "data" / "universe_cache.json"
+CACHE_PATH = Path(__file__).parent / "data" / "universe_cache_eodhd.json"
 CACHE_TTL_HOURS = 24
-
-HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/120.0.0.0 Safari/537.36"
-    )
-}
 
 
 @dataclass
@@ -38,118 +26,32 @@ class UniverseEntry:
     """Single ticker entry in the universe."""
 
     exchange: str
-    ticker: str          # yfinance format, e.g. "BHP.AX" or "D05.SI"
+    ticker: str          # EODHD format, e.g. "BHP.AU"
     company_name: str
     gics_sector: str
 
 
-# ---------------------------------------------------------------------------
-# ASX
-# ---------------------------------------------------------------------------
-
 def fetch_asx() -> list[UniverseEntry]:
-    """
-    Download the official ASX listed-companies CSV and return UniverseEntry list.
-
-    Row 0 of the CSV is a timestamp line ("ASX listed companies as at ...").
-    skiprows=1 discards it so the real column headers become the first row.
-    """
-    logger.info("Fetching ASX universe from %s", ASX_CSV_URL)
+    """Every ASX common stock EODHD lists."""
     try:
-        resp = requests.get(ASX_CSV_URL, headers=HEADERS, timeout=30)
-        resp.raise_for_status()
-        from io import StringIO
-        df = pd.read_csv(StringIO(resp.text), skiprows=1)
-    except Exception as exc:
-        logger.error("Failed to fetch ASX CSV: %s", exc)
+        rows = eodhd.exchange_symbols("AU")
+    except eodhd.EODHDError as exc:
+        logger.error("EODHD symbol list failed: %s", exc)
         return []
-
-    # Normalise column names (strip whitespace)
-    df.columns = [c.strip() for c in df.columns]
-
-    required = {"Company name", "ASX code", "GICS industry group"}
-    if not required.issubset(df.columns):
-        logger.error("Unexpected ASX CSV columns: %s", list(df.columns))
-        return []
-
-    entries: list[UniverseEntry] = []
-    for _, row in df.iterrows():
-        code = str(row["ASX code"]).strip()
-        # Keep only pure-alphabetic codes (warrants/options contain digits)
-        if not code or not code.isalpha():
-            continue
-        entries.append(
-            UniverseEntry(
-                exchange="ASX",
-                ticker=f"{code}.AX",
-                company_name=str(row["Company name"]).strip(),
-                gics_sector=str(row["GICS industry group"]).strip(),
-            )
-        )
-
-    logger.info("ASX universe: %d tickers", len(entries))
+    entries = [
+        UniverseEntry(exchange="ASX", ticker=f"{r['Code']}.AU",
+                      company_name=str(r.get("Name") or "").strip(), gics_sector="")
+        for r in rows
+        if r.get("Type") == "Common Stock" and str(r.get("Code") or "").isalnum()
+    ]
+    logger.info("ASX universe (EODHD): %d common stocks", len(entries))
     return entries
 
 
-# ---------------------------------------------------------------------------
-# SGX
-# ---------------------------------------------------------------------------
-
 def fetch_sgx() -> list[UniverseEntry]:
-    """
-    Scrape stockanalysis.com for SGX-listed tickers.
-
-    Returns an empty list (with a warning) if the scrape fails — the page
-    may use JS rendering which simple requests cannot access.
-    """
-    logger.info("Scraping SGX universe from %s", SGX_URL)
-    try:
-        resp = requests.get(SGX_URL, headers=HEADERS, timeout=30)
-        resp.raise_for_status()
-        soup = BeautifulSoup(resp.text, "html.parser")
-
-        # stockanalysis.com renders a <table> with Symbol and Company Name columns
-        table = soup.find("table")
-        if table is None:
-            raise ValueError("No <table> found on page — site may require JS rendering")
-
-        headers_row = [th.get_text(strip=True) for th in table.find_all("th")]
-        try:
-            sym_idx = next(
-                i for i, h in enumerate(headers_row)
-                if re.search(r"symbol|ticker", h, re.I)
-            )
-            name_idx = next(
-                i for i, h in enumerate(headers_row)
-                if re.search(r"company|name", h, re.I)
-            )
-        except StopIteration:
-            raise ValueError(f"Could not locate Symbol/Name columns in headers: {headers_row}")
-
-        entries: list[UniverseEntry] = []
-        for tr in table.find_all("tr")[1:]:  # skip header row
-            cells = tr.find_all("td")
-            if len(cells) <= max(sym_idx, name_idx):
-                continue
-            symbol = cells[sym_idx].get_text(strip=True)
-            company = cells[name_idx].get_text(strip=True)
-            if not symbol:
-                continue
-            entries.append(
-                UniverseEntry(
-                    exchange="SGX",
-                    ticker=f"{symbol}.SI",
-                    company_name=company,
-                    gics_sector="",   # not available from this source
-                )
-            )
-
-        logger.info("SGX universe: %d tickers", len(entries))
-        return entries
-
-    except Exception as exc:
-        logger.warning("SGX scrape failed (%s) — returning empty list", exc)
-        return []
+    """SGX is not on the EODHD plan, so there is no SGX universe."""
+    logger.warning("SGX skipped: not covered by the EODHD plan (no other source is used)")
+    return []
 
 
 # ---------------------------------------------------------------------------
@@ -204,7 +106,7 @@ def get_universe(
         List of UniverseEntry, one per ticker.
     """
     if exchanges is None:
-        exchanges = ["ASX", "SGX"]
+        exchanges = ["ASX"]
 
     exchanges = [e.upper() for e in exchanges]
 
